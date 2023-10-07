@@ -1,0 +1,447 @@
+//*                                 materiales                                      //                       
+
+
+
+
+namespace ParcialApp.Entidades
+{   
+
+    //materiales lleva constructor con y sin parametros y un tostring chill
+   public class Materiales
+    {
+        public int Codigo { get; set; }
+        public string Nombre {  get; set; }
+
+        public double Stock { get; set; }
+
+        public Materiales(int codigo, string nombre, double stock) 
+        {
+            Codigo = codigo;
+            Nombre = nombre;
+            Stock = stock;
+        
+        
+        }
+        public Materiales() 
+        {
+            Codigo = 0;
+            Nombre = string.Empty;
+            Stock = 0;
+        
+        
+        }
+        public override string ToString()
+        {
+            return Nombre;
+        }
+
+
+    }
+    
+}
+
+//                       *                                                 *                            //
+
+
+
+
+
+//          *                       Detalle de orden            *                   //
+
+
+namespace ParcialApp.Entidades
+{
+
+    // como tiene un material va el objeto material de clase material, eso nomas
+    public class DetalleOrden
+    {
+     
+        public Materiales Material { get; set; }
+        public int Cantidad { get; set; }
+
+        public DetalleOrden(Materiales material, int cantidad)
+        {
+            this.Material = material;
+            this.Cantidad = cantidad;
+        }
+
+        public DetalleOrden() 
+        {
+            Cantidad = 0;
+            Material = null;
+        
+        }
+    }
+}
+
+
+
+
+//                      *                                           *                       //
+
+
+
+
+
+
+
+
+//          *                     Orden Retiro                          *               ///
+
+
+
+
+
+
+namespace ParcialApp.Entidades
+{
+
+    //tabla maestra ya que tiene muchos detalles, tiene que tener los metodos agregar y quitar y la lista con los detalles 
+    public class OrdenRetiro
+    {
+        public List<DetalleOrden>DetOrd{ get; set; }
+        public int  NroOrden { get; set; }
+
+        public DateTime Fecha { get; set; }
+
+        public string Responsable { get; set; }
+
+        public OrdenRetiro(List<DetalleOrden>detOrd, int nroOrden, DateTime fecha, string id_responsable) 
+        {
+            DetOrd = detOrd;
+            NroOrden = nroOrden;   
+            Fecha = fecha;
+            Responsable = id_responsable;
+        
+        }
+
+        //tiene que estar inicializado par apoder usar los metodos de abajo
+        public OrdenRetiro() 
+        {
+           Fecha = DateTime.Now;
+            DetOrd= new List<DetalleOrden>();
+        
+        
+        }
+
+        public void AgregarDetalle(DetalleOrden detalle)
+        {
+            DetOrd.Add(detalle);
+
+
+        }
+
+
+
+        public void QuitarDetalle(int posicion) 
+        {
+            DetOrd.RemoveAt(posicion);
+        
+        
+        }
+
+        
+    }
+    
+}
+
+
+//              *                                                       *               //
+
+
+
+
+
+
+
+
+
+//                  *                Conexion                   *                       //
+
+
+
+namespace ParcialApp.Entidades
+{
+    public class Conexion
+    {
+        // creamos clase conexion inicializamos la cadena de conexion y el comando cmd que vamos a usar para pasarle comandos a la base de datos y trans para la transaccion
+        SqlConnection cnn = new SqlConnection(Properties.Resources.StringSql1);
+        SqlCommand cmd;
+        SqlTransaction trans;
+
+
+        //metodo conectar
+        public void Conectar() 
+        {
+            cnn.Open();
+            cmd = new SqlCommand();
+            cmd.Connection = cnn;
+        
+        }
+
+        //metodo consultar es de tipo datatable 
+        public DataTable Consultar() 
+        {
+            Conectar();
+            cmd.CommandText = "SP_CONSULTAR_MATERIALES"; //busco en la bd el metodo consultar
+            cmd.CommandType = CommandType.StoredProcedure; //ponemos que el tipo de comando es de procedimiento almacenado
+            DataTable dt = new DataTable();
+            dt.Load(cmd.ExecuteReader());
+            cnn.Close();
+            return dt;
+         //despues de esto vamos al cargar combo del load del form
+        }
+
+        //metodo grabar(aceptar) y transaccion
+     public bool GrabarOrden(OrdenRetiro orden) //boton aceptar era void antes si lo hago bool tengo que devolver un bool como aca hace resultado
+        {
+            bool resultado = false;                 //vamos a la base de datos y nos fijamos que parametros tienen, si son de entrada o salida
+            try
+            {
+                Conectar();                                                 //lo hacemos como transaccion obviamente
+                trans = cnn.BeginTransaction();
+                cmd.Transaction = trans;
+                cmd.CommandText = "SP_INSERTAR_ORDEN";
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@responsable",orden.Responsable ); //hasta ahora pusimos el sp el tipo de comando y el responsable que sacamos de agregar 
+                SqlParameter param =new SqlParameter(); //creamos el obj param para los nuevos parametros y creamos el siguiente q necesitamos
+                param.ParameterName = "nro";
+                param.SqlDbType = SqlDbType.Int;
+                param.Direction = ParameterDirection.Output;
+                cmd.Parameters.Add(param);
+                cmd.ExecuteNonQuery();
+                int nro_orden = (int)param.Value; //para que el nro de orden sea igual al parametro que sale 
+                
+
+                SqlCommand cmd1;                //inserta cada detalle
+                int nro_detalle = 1;  //inicializamos en 1 y al final del detalle sumamos para nro_detalle
+                foreach (DetalleOrden det in orden.DetOrd) //por cada detalle de cada orden
+                {
+                    cmd1= new SqlCommand("SP_INSERTAR_DETALLES",cnn,trans);  //se le pasa la misma transaccion asi forman parte de lo mismo
+                    cmd1.Connection = cnn;
+                    cmd1.Transaction = trans;
+                    cmd1.CommandType = CommandType.StoredProcedure;
+                    cmd1.Parameters.AddWithValue("@nro_orden",nro_orden);
+                    cmd1.Parameters.AddWithValue("@detalle", nro_detalle);
+                    cmd1.Parameters.AddWithValue("@codigo",det.Material.Codigo );
+                    cmd1.Parameters.AddWithValue("@cantidad", det.Cantidad);
+                    cmd1.ExecuteNonQuery( );
+
+                    nro_detalle++;
+                }
+
+                trans.Commit();
+                resultado = true; 
+            }
+            catch 
+            {
+                if(trans != null) 
+                {
+                    trans.Rollback();
+                    resultado = false;
+                    throw;
+                    
+                }
+            }
+
+            finally 
+            { 
+                cnn.Close();
+            }        
+            return resultado; //muestra el resultado 
+        }
+
+
+
+    }
+}
+
+
+//      *                                                       *                   //
+
+
+
+
+
+
+//              *                   Load Form                   *                       //
+
+
+
+
+
+namespace ParcialApp.Presentacion
+{
+    public partial class Frm_Alta : Form
+    {
+        // declaramos el helper de la conexion y creamos el objeto mas grande 
+        Conexion helper;
+        OrdenRetiro nueva; // declaramos la orden de retiro que nace de completar el detalle y los materiales 
+
+        //aca inicializamos
+        public Frm_Alta()
+        {
+            InitializeComponent();
+             helper = new Conexion();
+            nueva = new OrdenRetiro(); //inicializamos en el constructor sin parametros
+        }
+
+
+
+        // validacion de que este lleno el txt y validacion de que se alla podido agregar el producto, para validar que esten puestos los campos es en este boton
+        private void btnAceptar_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(txtResp.Text))   //si esta vacio dice que agregues un responsable
+            {
+                MessageBox.Show("Agregue un responsable");
+                return;
+            
+            }
+            if (dgvDetalles.Rows.Count == 0)        //si no tiene rows tenes q comprar algo
+            {
+                MessageBox.Show("debe comprar algo");
+                return;
+            } 
+
+            if(helper.GrabarOrden(nueva))  //si la transaction pasa dice agregado con exito y sino no
+            {
+                MessageBox.Show("Agregado con exito");
+            
+            }
+            else { MessageBox.Show("No se pudo agregar");
+            }
+            Limpiar();
+        }
+
+        //metodo que vamos a usar en los otros, que limpia todo
+        private void Limpiar() 
+        {
+            nudCantidad.Value = 1;
+            txtResp.Text= string.Empty;
+            dtpFecha.Text= DateTime.Now.ToString();
+            dgvDetalles.Rows.Clear();
+            cboMateriales.SelectedIndex = 0;
+
+        
+        }
+        //metodo para cancelar la transaccion
+        private void btnCancelar_Click(object sender, EventArgs e)
+        {
+            DialogResult result = MessageBox.Show("¿Está seguro que desea cancelar?", "Salir", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (result == DialogResult.Yes)
+            {
+                this.Dispose();
+
+            }
+            else
+            {
+                return;
+            }
+            Limpiar();
+        }
+
+
+        //en este load se carga el combobox
+        private void Frm_Alta_Presupuesto_Load(object sender, EventArgs e)
+        {
+            CargarCombo();
+        }
+
+        //cargar combobox
+        private void CargarCombo()
+        {
+            DataTable dt= new DataTable();
+            dt = helper.Consultar(); //usamos el metodo que definimos en conexion, usando helper para combinar las tablas 
+            cboMateriales.DataSource = dt;
+            cboMateriales.ValueMember = "codigo"; //buscamos los campos de lo que queremos llenar el value member para el id y el display member para lo que queremos
+            cboMateriales.DisplayMember = "nombre"; //que se vea en el combo
+            cboMateriales.DropDownStyle = ComboBoxStyle.DropDownList;
+        }
+
+        //control de que no se puedan agregar materiales ya agregados, carga el datagrid 
+        private void btnAgregar_Click(object sender, EventArgs e)
+        {
+            DataRowView item = (DataRowView)cboMateriales.SelectedItem; //junta el item que seleccionamos con la grid 
+
+            foreach (DataGridViewRow fila in dgvDetalles.Rows) //por cada fila del datagrid se fija si el nombre esta repetido, lo hace con el index del array
+            {
+                if (item.Row.ItemArray[1].ToString() == fila.Cells["material"].Value.ToString()) //por cada celda del material
+                {
+                    MessageBox.Show("No puede agregar el mismo producto dos veces ");
+                    Limpiar();
+                    return;
+
+                }
+
+            }
+
+
+            int cod = Convert.ToInt32(item.Row.ItemArray[0]);  // para traer los datos de las tablas y ponerlos en el grid creo 3 variables
+            string nombre = item.Row.ItemArray[1].ToString();  // y uso su posicion en la tabla de la db para saber en donde va cada uno
+            int stock = Convert.ToInt32(item.Row.ItemArray[2]); //puede que tenga que convertir el tipo de dato aca converti en int y el seg en string
+
+            if (stock < nudCantidad.Value)   //controlamos que si el stock es menor a la cantidad que eligio dice que no tenemos suficiente
+            {
+                MessageBox.Show("No se cuenta con suficiente stock");
+                return;
+
+
+
+            }
+
+            Materiales m = new Materiales(cod, nombre, stock); //como ya rellenamos material arriba ahora creamos el objeto material
+
+            dgvDetalles.Rows.Add(cod, nombre, stock, nudCantidad.Value); //lo que va antes del punto es el nombre de la datagridview y despues ponemos fila y lo
+                                                                         //que queremos agregar, nud cantidad sacamos de  lo que selecciono el usuario en el form
+            int cantidad = Convert.ToInt32(nudCantidad.Value); // para poder poner cantidad primero convertimos el nud en int 
+            DetalleOrden det = new DetalleOrden(m, cantidad);//creamos el detalle con los valores que necesita detalle, materiales que creamos arriba y cantidad que selecciona el us
+           
+            
+            
+            nueva.AgregarDetalle(det);              // con esto se agrega tanto en el datagrid como en el objeto orden retiro y detalle
+            nueva.Responsable = txtResp.Text;      //agrega a orden retiro el responsable
+        }
+
+        private bool ExisteProductoEnGrilla(string text)
+        {
+            foreach (DataGridViewRow fila in dgvDetalles.Rows)
+            {
+                if (fila.Cells["producto"].Value.Equals(text))
+                    return true;
+            }
+            return false;
+        }
+
+       
+
+
+
+        private void dgvDetalles_CellContentClick(object sender, DataGridViewCellEventArgs e)  // boton quitar, hacemos click en el grid para llegar aca cellcontent click checkea en que celda esta el us
+        {
+            if (dgvDetalles.CurrentCell.ColumnIndex == 4)  // si el usuario esta parado en la celda 4, que es donde esta el boton quitar 
+            { 
+                 if(dgvDetalles.CurrentCell.ColumnIndex == 4) 
+                {
+                    nueva.QuitarDetalle(dgvDetalles.CurrentRow.Index); //nueva pq es lo que llama la clase ordenretiro, que tiene el metodo quitardetalle, y el current row 
+                    dgvDetalles.Rows.RemoveAt(dgvDetalles.CurrentRow.Index);  // borra la row donde estas parado
+                
+                }
+               
+            }
+        }
+
+        private void cboMateriales_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
+    
+
+
+
+
+
+//                          *                                       *                   //
+
+
